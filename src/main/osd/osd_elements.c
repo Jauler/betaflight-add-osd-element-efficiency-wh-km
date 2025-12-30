@@ -102,6 +102,10 @@
     VTX_CHANNEL
         type 1: Contains Band:Channel:Power:Pit
         type 2: Contains only Power
+
+    OSD_EFFICIENCY
+        type 1: Battery efficiency in mAh/km or mAh/mi
+        type 2: Battery efficiency in Wh/km or Wh/mi
 */
 
 #include <stdbool.h>
@@ -1238,20 +1242,44 @@ static void osdElementGpsSpeed(osdElementParms_t *element)
     }
 }
 
+static void osdFormatEfficencyWh(osdElementParms_t *element, int efficiency)
+{
+    const char distanceUnitSymbol = osdConfig()->units == UNIT_IMPERIAL ? SYM_MILES : SYM_KM;
+
+    if (efficiency > 0 && efficiency <= 9999) {
+        const int efficiencyWholeNumber = efficiency / 10;
+        const int efficiencyRemainder = efficiency % 10;
+        tfp_sprintf(element->buff, "%3d.%1dWH/%c", efficiencyWholeNumber, efficiencyRemainder, distanceUnitSymbol);
+    } else {
+        tfp_sprintf(element->buff, "-----WH/%c", distanceUnitSymbol);
+    }
+}
+
+static void osdFormatEfficencymAh(osdElementParms_t *element, int efficiency)
+{
+    const char distanceUnitSymbol = osdConfig()->units == UNIT_IMPERIAL ? SYM_MILES : SYM_KM;
+    if (efficiency > 0 && efficiency <= 9999) {
+        tfp_sprintf(element->buff, "%4d%c/%c", efficiency, SYM_MAH, distanceUnitSymbol);
+    } else {
+        tfp_sprintf(element->buff, "----%c/%c", SYM_MAH, distanceUnitSymbol);
+    }
+}
+
 static void osdElementEfficiency(osdElementParms_t *element)
 {
     int efficiency = 0;
     if (sensors(SENSOR_GPS) && ARMING_FLAG(ARMED) && STATE(GPS_FIX) && gpsSol.groundSpeed >= EFFICIENCY_MINIMUM_SPEED_CM_S) {
         const float speed = (float)osdGetSpeedToSelectedUnit(gpsSol.groundSpeed);
         const float mAmperage = (float)getAmperage() * 10.f; // Current in mA
-        efficiency = lrintf(pt1FilterApply(&batteryEfficiencyFilt, (mAmperage / speed)));
+        const float mVoltage = (float)getBatteryVoltage() / 100.f; // Voltage in V
+        const float mEfficiencyRaw = element->type == OSD_ELEMENT_TYPE_2 ? (mAmperage * mVoltage / speed / 100.f) : (mAmperage / speed);
+        efficiency = lrintf(pt1FilterApply(&batteryEfficiencyFilt, mEfficiencyRaw));
     }
 
-    const char unitSymbol = osdConfig()->units == UNIT_IMPERIAL ? SYM_MILES : SYM_KM;
-    if (efficiency > 0 && efficiency <= 9999) {
-        tfp_sprintf(element->buff, "%4d%c/%c", efficiency, SYM_MAH, unitSymbol);
+    if (element->type == OSD_ELEMENT_TYPE_2) {
+        osdFormatEfficencyWh(element, efficiency);
     } else {
-        tfp_sprintf(element->buff, "----%c/%c", SYM_MAH, unitSymbol);
+        osdFormatEfficencymAh(element, efficiency);
     }
 }
 #endif // USE_GPS
